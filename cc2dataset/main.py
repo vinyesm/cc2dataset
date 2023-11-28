@@ -47,73 +47,79 @@ def valid_video_platform_link_(link):
     return is_bilibili_video(link.get("url", ""))
 
 import yt_dlp
+from urllib.parse import urlparse
 
 generic_extractors = [yt_dlp.extractor.generic.GenericIE, yt_dlp.extractor.lazy_extractors.GenericIE]
+porn_patterns = ["porn", "adult", "xxx", "xvideos", "xhamster", "redtube", "xtube", "xstream", "xfileshare", "sex"]
+playlist_patterns = ["Playlist", "Category", "User"]
+domain_patterns = ["twitter", "instagram", "facebook"]
+youtube_whitelist = ["YoutubeIE", "YoutubeYtBeIE", "YoutubeClipIE"]
+dailymotion_whitelist = ["DailymotionIE"]
 
-FILTERED_EXTRACTORS = {ie.IE_NAME:ie for ie in yt_dlp.list_extractor_classes() 
-                       if ie not in generic_extractors 
-                       and "porn" not in ie.IE_NAME.lower()
-                       and "adult" not in ie.IE_NAME.lower()
-                       and "xxx" not in ie.IE_NAME.lower()
-                       and "xvideos" not in ie.IE_NAME.lower()
-                       and "xhamster" not in ie.IE_NAME.lower()
-                       and "redtube" not in ie.IE_NAME.lower()
-                       and "xtube" not in ie.IE_NAME.lower()
-                       and "xstream" not in ie.IE_NAME.lower()
-                       and "xfileshare" not in ie.IE_NAME.lower()
-                       and "sex" not in ie.IE_NAME.lower()
+def get_class_name(ie):
+    return str(ie).split('.')[-1].split("'")[0]
+
+def substrings_not_in_string(s, subs):
+    not_in_string = [ss for ss in subs if ss in s]
+    return not not_in_string
+
+def whitlist_extractors(ie, main_name, extractor_whitelist):
+    return not main_name in ie.IE_NAME.lower() or get_class_name(ie) in youtube_whitelist
+
+FILTERED_EXTRACTORS = {ie.IE_NAME:ie for ie in yt_dlp.list_extractor_classes()
+                       if ie not in generic_extractors
+                       and substrings_not_in_string(ie.IE_NAME.lower(), porn_patterns)
+                       and whitlist_extractors(ie, "youtube", youtube_whitelist)
+                       and substrings_not_in_string(get_class_name(ie), playlist_patterns)
+                       and substrings_not_in_string(get_class_name(ie).lower(), domain_patterns)
                        }
 
 def extract_test(extractor):
-    tests = []
-    if hasattr(extractor, "_TEST") and extractor._TEST is not None:
-        tests = [extractor._TEST["url"]]
-    elif hasattr(extractor, "_TESTS") and extractor._TESTS is not None:
-        tests = [x["url"] for x in extractor._TESTS]
-    return tests
+  tests = []
+  if hasattr(extractor, "_TEST"):
+    tests = [extractor._TEST["url"]]
+  elif hasattr(extractor, "_TESTS"):
+    tests = [x["url"] for x in extractor._TESTS]
+  return tests
 
 def normalize_domain(domain):
-    domain = domain.lower()
-    if domain.startswith("www."):
+  domain = domain.lower()
+  if domain.startswith("www."):
         domain = domain[4:]
-    return domain
+  return domain
 
 def extract_domain(url):
-    try:
-        parsed_url = urlparse(url)
-        domain = parsed_url.netloc
-        return normalize_domain(domain)
-    except:
-        return ""
+    parsed_url = urlparse(url)
+    domain = parsed_url.netloc
+    return normalize_domain(domain)
 
-DOMAIN_DICT = {}
+DOMAIN_IES_DICT = {}
 
 for extractor in FILTERED_EXTRACTORS.values():
-    for url in extract_test(extractor):
-        domain = extract_domain(url)
-    if domain in DOMAIN_DICT:
-        DOMAIN_DICT[domain] = DOMAIN_DICT[domain] + [extractor]
+  for url in extract_test(extractor):
+    domain = extract_domain(url)
+    if domain in DOMAIN_IES_DICT:
+      DOMAIN_IES_DICT[domain] = DOMAIN_IES_DICT[domain] + [extractor]
     else:
-        DOMAIN_DICT[domain] = [extractor]
+      DOMAIN_IES_DICT[domain] = [extractor]
+
 
 def is_link_suitable(link, extractors):
     """Check if link is valid given an extractor."""
-    try:
-        return any([ie.suitable(link) for ie in extractors])
-    except:
-        return False
+    return any([ie.suitable(link) for ie in extractors])
 
 def is_link_valid(link, domain_dict):
     """Check if link is valid given a list of extractors."""
     is_valid = False
     domain = extract_domain(link)
     if domain in domain_dict:
-        is_valid = is_link_suitable(link, domain_dict[domain])
+      is_valid = is_link_suitable(link, domain_dict[domain])
     return is_valid
+
 
 def valid_video_platform_link(link):
     """Check if link is a valid video platform link."""
-    return is_link_valid(link.get("url", ""), DOMAIN_DICT)
+    return link and is_link_valid(link, DOMAIN_IES_DICT)
 
 def extract_video_platform_from_links(links):
     filtered_links = [{"url": link["url"], "alt": link.get("text", "")} for link in links if valid_video_platform_link(link)]
